@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "worker-name",
+  "name": "save-mini-app",
   "main": "src/index.js",
   "compatibility_date": "2025-02-04",
 
