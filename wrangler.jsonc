@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "miniapp-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-07",
+  "observability": {
+    "enabled": true
+  },
+
+  "kv_namespaces": [
+    {
+      "binding": "DATA", // Worker kodi `env.DATA` deb ishlaydi
+      "id": "60998e20ac60405392a3c3dd6caf79aa",
+      "preview_id": "<ID_OF_PREVIEW_KV_NAMESPACE_FOR_LOCAL_DEVELOPMENT>" // optional, dev uchun
+    }
+  ]
+}
