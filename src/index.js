@@ -1,52 +1,93 @@
 export default {
   async fetch(request, env, ctx) {
-    // CORS headers
+    // Keng CORS headers
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, X-Requested-With',
+      'Access-Control-Max-Age': '86400',
+      'Access-Control-Allow-Credentials': 'false'
     };
 
-    // OPTIONS request
+    // OPTIONS request (preflight)
     if (request.method === 'OPTIONS') {
       return new Response(null, {
+        status: 204,
         headers: corsHeaders
+      });
+    }
+
+    const url = new URL(request.url);
+    
+    // Health check endpoint
+    if (url.pathname === '/health' || url.searchParams.get('health')) {
+      return new Response(JSON.stringify({
+        status: "online",
+        timestamp: new Date().toISOString(),
+        worker: "miniapp-api",
+        version: "1.0.0",
+        cors: "enabled"
+      }), {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
       });
     }
 
     // POST request - save answers
     if (request.method === 'POST') {
       try {
-        const data = await request.json();
-        console.log("POST request received");
-        
-        // Validate data
-        if (!data.userId || !data.answers) {
+        let data;
+        try {
+          data = await request.json();
+        } catch (e) {
           return new Response(JSON.stringify({
             success: false,
-            error: "userId and answers are required"
+            error: "Invalid JSON in request body"
           }), {
             status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json'
+            }
+          });
+        }
+
+        // Validate required fields
+        if (!data.userId) {
+          return new Response(JSON.stringify({
+            success: false,
+            error: "userId is required"
+          }), {
+            status: 400,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json'
+            }
           });
         }
 
         const userId = data.userId.toString();
         const timestamp = data.timestamp || new Date().toISOString();
         
-        // Separate open and closed answers
+        // Process answers
         const numClosed = data.testInfo?.closedQuestions || 30;
         const closedAnswers = {};
         const openAnswers = {};
         
-        Object.keys(data.answers).forEach(key => {
-          const qNum = parseInt(key);
-          if (qNum <= numClosed) {
-            closedAnswers[key] = data.answers[key];
-          } else {
-            openAnswers[key] = data.answers[key];
-          }
-        });
+        if (data.answers && typeof data.answers === 'object') {
+          Object.keys(data.answers).forEach(key => {
+            const qNum = parseInt(key);
+            if (!isNaN(qNum)) {
+              if (qNum <= numClosed) {
+                closedAnswers[key] = data.answers[key];
+              } else {
+                openAnswers[key] = data.answers[key];
+              }
+            }
+          });
+        }
         
         // Prepare data for storage
         const saveData = {
@@ -59,12 +100,12 @@ export default {
             openQuestions: 5,
             totalQuestions: 35
           },
-          answers: data.answers,
+          answers: data.answers || {},
           closedAnswers: closedAnswers,
           openAnswers: openAnswers,
           closedCount: Object.keys(closedAnswers).length,
           openCount: Object.keys(openAnswers).length,
-          totalCount: Object.keys(data.answers).length
+          totalCount: Object.keys(data.answers || {}).length
         };
 
         console.log(`Saving data for user ${userId}:`, {
@@ -74,39 +115,27 @@ export default {
         });
 
         // Save to KV
-        const kvKey = `test_${userId}_${Date.now()}`;
-        await env.DATA.put(kvKey, JSON.stringify(saveData));
-        
-        // Update user index
-        const userIndexKey = `index_${userId}`;
-        let userIndex = [];
-        
+        const kvKey = `answer_${userId}_${Date.now()}`;
         try {
-          const existing = await env.DATA.get(userIndexKey, 'json');
-          if (existing && Array.isArray(existing)) {
-            userIndex = existing;
-          }
-        } catch (e) {
-          // New user
+          await env.DATA.put(kvKey, JSON.stringify(saveData));
+          console.log(`Data saved to KV with key: ${kvKey}`);
+        } catch (kvError) {
+          console.error("KV save error:", kvError);
+          return new Response(JSON.stringify({
+            success: false,
+            error: "Failed to save to database"
+          }), {
+            status: 500,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json'
+            }
+          });
         }
-        
-        userIndex.push({
-          key: kvKey,
-          timestamp: timestamp,
-          total: saveData.totalCount,
-          open: saveData.openCount
-        });
-        
-        // Keep only last 20 entries
-        if (userIndex.length > 20) {
-          userIndex = userIndex.slice(-20);
-        }
-        
-        await env.DATA.put(userIndexKey, JSON.stringify(userIndex));
 
         return new Response(JSON.stringify({
           success: true,
-          message: "Answers saved successfully",
+          message: "Test answers saved successfully",
           savedId: kvKey,
           stats: {
             total: saveData.totalCount,
@@ -115,107 +144,81 @@ export default {
             openAnswers: openAnswers
           },
           debug: {
-            kvKey: kvKey,
+            userId: userId,
             timestamp: timestamp
           }
         }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          status: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json'
+          }
         });
 
       } catch (error) {
-        console.error("Error:", error);
+        console.error("Unexpected error:", error);
         return new Response(JSON.stringify({
           success: false,
-          error: error.message,
-          details: "Internal server error"
+          error: "Internal server error",
+          message: error.message
         }), {
           status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json'
+          }
         });
       }
     }
 
-    // GET request - retrieve data
+    // GET request
     if (request.method === 'GET') {
-      const url = new URL(request.url);
-      const path = url.pathname;
-      
-      // Health check
-      if (path === '/health' || url.searchParams.get('health') === 'true') {
-        return new Response(JSON.stringify({
-          status: "ok",
-          timestamp: new Date().toISOString(),
-          worker: "miniapp-api",
-          kv: "connected"
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
-      // Get user data
       const userId = url.searchParams.get('userId');
+      
       if (userId) {
         try {
-          const userIndexKey = `index_${userId}`;
+          const userIndexKey = `user_index_${userId}`;
           const userIndex = await env.DATA.get(userIndexKey, 'json') || [];
-          
-          // Get detailed data for each entry
-          const detailedResults = [];
-          for (const entry of userIndex.slice(-10)) {
-            const data = await env.DATA.get(entry.key, 'json');
-            if (data) {
-              detailedResults.push({
-                timestamp: data.timestamp,
-                total: data.totalCount,
-                closed: data.closedCount,
-                open: data.openCount,
-                openAnswers: data.openAnswers || {}
-              });
-            }
-          }
           
           return new Response(JSON.stringify({
             success: true,
             userId: userId,
-            totalEntries: userIndex.length,
-            recent: detailedResults
+            submissions: userIndex.length,
+            recent: userIndex.slice(-5)
           }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json'
+            }
           });
-          
         } catch (error) {
           return new Response(JSON.stringify({
             success: false,
             error: error.message
           }), {
             status: 500,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json'
+            }
           });
         }
       }
       
-      // List all KV keys (admin only)
-      if (url.searchParams.get('admin') === 'true') {
-        const list = await env.DATA.list();
-        return new Response(JSON.stringify({
-          success: true,
-          totalKeys: list.keys.length,
-          keys: list.keys.map(k => k.name).slice(0, 50)
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        });
-      }
-      
       // Default response
       return new Response(JSON.stringify({
-        message: "MiniApp API",
+        service: "MiniApp Test API",
         endpoints: {
-          POST: "/ - Save test answers",
-          GET: "/?userId=123 - Get user answers",
-          GET: "/health - Health check"
-        }
+          "POST /": "Submit test answers",
+          "GET /health": "Health check",
+          "GET /?userId=ID": "Get user submissions"
+        },
+        cors: "enabled"
       }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json'
+        }
       });
     }
 
