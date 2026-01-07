@@ -1,7 +1,5 @@
-// src/index.js
-
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // CORS headers
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
@@ -9,37 +7,35 @@ export default {
       'Access-Control-Allow-Headers': 'Content-Type',
     };
 
-    // OPTIONS request uchun
+    // OPTIONS request
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         headers: corsHeaders
       });
     }
 
-    // POST request - javoblarni saqlash
+    // POST request - save answers
     if (request.method === 'POST') {
       try {
         const data = await request.json();
-        console.log("Qabul qilingan ma'lumotlar:", JSON.stringify(data, null, 2));
+        console.log("POST request received");
         
-        // Ma'lumotlarni tekshirish
+        // Validate data
         if (!data.userId || !data.answers) {
           return new Response(JSON.stringify({
             success: false,
-            error: "userId va answers majburiy"
+            error: "userId and answers are required"
           }), {
             status: 400,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           });
         }
-        
+
         const userId = data.userId.toString();
         const timestamp = data.timestamp || new Date().toISOString();
         
-        // Yopiq va ochiq javoblarni ajratish
+        // Separate open and closed answers
         const numClosed = data.testInfo?.closedQuestions || 30;
-        const numOpen = data.testInfo?.openQuestions || 5;
-        
         const closedAnswers = {};
         const openAnswers = {};
         
@@ -52,148 +48,137 @@ export default {
           }
         });
         
-        console.log("Yopiq javoblar soni:", Object.keys(closedAnswers).length);
-        console.log("Ochiq javoblar soni:", Object.keys(openAnswers).length);
-        console.log("Ochiq javoblar:", openAnswers);
-        
-        // Saqlash uchun ma'lumotlar
+        // Prepare data for storage
         const saveData = {
           id: `${userId}_${Date.now()}`,
           userId: userId,
-          userName: data.userName || "Foydalanuvchi",
+          userName: data.userName || "User",
           timestamp: timestamp,
-          testInfo: {
-            closedQuestions: numClosed,
-            openQuestions: numOpen,
-            totalQuestions: numClosed + numOpen
+          testInfo: data.testInfo || {
+            closedQuestions: 30,
+            openQuestions: 5,
+            totalQuestions: 35
           },
           answers: data.answers,
           closedAnswers: closedAnswers,
           openAnswers: openAnswers,
-          openAnswersCount: Object.keys(openAnswers).length,
-          closedAnswersCount: Object.keys(closedAnswers).length,
-          totalAnswers: Object.keys(data.answers).length
+          closedCount: Object.keys(closedAnswers).length,
+          openCount: Object.keys(openAnswers).length,
+          totalCount: Object.keys(data.answers).length
         };
+
+        console.log(`Saving data for user ${userId}:`, {
+          closed: saveData.closedCount,
+          open: saveData.openCount,
+          total: saveData.totalCount
+        });
+
+        // Save to KV
+        const kvKey = `test_${userId}_${Date.now()}`;
+        await env.DATA.put(kvKey, JSON.stringify(saveData));
         
-        // 1. Asosiy ma'lumotni KV ga saqlash
-        const uniqueKey = `answer_${userId}_${Date.now()}`;
-        await env.DATA.put(uniqueKey, JSON.stringify(saveData));
-        
-        // 2. Foydalanuvchi uchun indeks saqlash
-        const userIndexKey = `user_${userId}_index`;
+        // Update user index
+        const userIndexKey = `index_${userId}`;
         let userIndex = [];
         
         try {
-          const existingIndex = await env.DATA.get(userIndexKey, 'json');
-          if (existingIndex && Array.isArray(existingIndex)) {
-            userIndex = existingIndex;
+          const existing = await env.DATA.get(userIndexKey, 'json');
+          if (existing && Array.isArray(existing)) {
+            userIndex = existing;
           }
         } catch (e) {
-          console.log("Yangi index yaratildi");
+          // New user
         }
         
         userIndex.push({
-          key: uniqueKey,
+          key: kvKey,
           timestamp: timestamp,
-          totalAnswers: saveData.totalAnswers
+          total: saveData.totalCount,
+          open: saveData.openCount
         });
         
-        // Faqat oxirgi 50 ta saqlash
-        if (userIndex.length > 50) {
-          userIndex = userIndex.slice(-50);
+        // Keep only last 20 entries
+        if (userIndex.length > 20) {
+          userIndex = userIndex.slice(-20);
         }
         
         await env.DATA.put(userIndexKey, JSON.stringify(userIndex));
-        
-        // 3. Ochiq javoblarni alohida saqlash (agar mavjud bo'lsa)
-        if (Object.keys(openAnswers).length > 0) {
-          const openAnswersKey = `open_${uniqueKey}`;
-          await env.DATA.put(openAnswersKey, JSON.stringify({
-            openAnswers: openAnswers,
-            timestamp: timestamp,
-            userId: userId
-          }));
-          console.log("Ochiq javoblar alohida saqlandi:", openAnswersKey);
-        }
-        
+
         return new Response(JSON.stringify({
           success: true,
-          message: "Javoblar muvaffaqiyatli saqlandi",
-          savedId: uniqueKey,
+          message: "Answers saved successfully",
+          savedId: kvKey,
           stats: {
-            total: saveData.totalAnswers,
-            closed: saveData.closedAnswersCount,
-            open: saveData.openAnswersCount,
-            openAnswers: openAnswers // Tekshirish uchun qaytarish
+            total: saveData.totalCount,
+            closed: saveData.closedCount,
+            open: saveData.openCount,
+            openAnswers: openAnswers
+          },
+          debug: {
+            kvKey: kvKey,
+            timestamp: timestamp
           }
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
-        
+
       } catch (error) {
-        console.error("Xato:", error);
+        console.error("Error:", error);
         return new Response(JSON.stringify({
           success: false,
           error: error.message,
-          stack: error.stack
-        }), { 
+          details: "Internal server error"
+        }), {
           status: 500,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
     }
-    
-    // GET request - ma'lumotlarni olish (debug uchun)
+
+    // GET request - retrieve data
     if (request.method === 'GET') {
       const url = new URL(request.url);
-      const userId = url.searchParams.get('userId');
-      const action = url.searchParams.get('action');
+      const path = url.pathname;
       
-      if (action === 'test') {
-        // Test endpoint
+      // Health check
+      if (path === '/health' || url.searchParams.get('health') === 'true') {
         return new Response(JSON.stringify({
-          success: true,
-          message: "Worker ishlamoqda",
+          status: "ok",
           timestamp: new Date().toISOString(),
-          kv: true
+          worker: "miniapp-api",
+          kv: "connected"
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
       
+      // Get user data
+      const userId = url.searchParams.get('userId');
       if (userId) {
-        // Foydalanuvchi ma'lumotlarini olish
-        const userIndexKey = `user_${userId}_index`;
-        
         try {
-          const userIndex = await env.DATA.get(userIndexKey, 'json');
-          const results = [];
+          const userIndexKey = `index_${userId}`;
+          const userIndex = await env.DATA.get(userIndexKey, 'json') || [];
           
-          if (userIndex && Array.isArray(userIndex)) {
-            // Eng so'nggi 10 tasini olish
-            const recentKeys = userIndex.slice(-10).map(item => item.key);
-            
-            // Har bir kalitdan ma'lumotlarni olish
-            for (const key of recentKeys) {
-              const data = await env.DATA.get(key, 'json');
-              if (data) {
-                results.push({
-                  key: key,
-                  timestamp: data.timestamp,
-                  total: data.totalAnswers,
-                  closed: data.closedAnswersCount,
-                  open: data.openAnswersCount,
-                  openAnswers: data.openAnswers || {}
-                });
-              }
+          // Get detailed data for each entry
+          const detailedResults = [];
+          for (const entry of userIndex.slice(-10)) {
+            const data = await env.DATA.get(entry.key, 'json');
+            if (data) {
+              detailedResults.push({
+                timestamp: data.timestamp,
+                total: data.totalCount,
+                closed: data.closedCount,
+                open: data.openCount,
+                openAnswers: data.openAnswers || {}
+              });
             }
           }
           
           return new Response(JSON.stringify({
             success: true,
             userId: userId,
-            results: results,
-            count: results.length
+            totalEntries: userIndex.length,
+            recent: detailedResults
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           });
@@ -209,34 +194,37 @@ export default {
         }
       }
       
-      // Barcha ma'lumotlarni ko'rish (faqat admin)
+      // List all KV keys (admin only)
       if (url.searchParams.get('admin') === 'true') {
         const list = await env.DATA.list();
-        const keys = list.keys.map(k => k.name);
-        
         return new Response(JSON.stringify({
           success: true,
-          total: keys.length,
-          keys: keys.slice(0, 100) // Faqat birinchi 100 tasi
+          totalKeys: list.keys.length,
+          keys: list.keys.map(k => k.name).slice(0, 50)
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
       }
       
+      // Default response
       return new Response(JSON.stringify({
-        success: false,
-        error: "userId kerak yoki action noto'g'ri"
+        message: "MiniApp API",
+        endpoints: {
+          POST: "/ - Save test answers",
+          GET: "/?userId=123 - Get user answers",
+          GET: "/health - Health check"
+        }
       }), {
-        status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
-    
+
+    // Method not allowed
     return new Response(JSON.stringify({
       success: false,
-      error: "Noto'g'ri so'rov"
+      error: "Method not allowed"
     }), {
-      status: 404,
+      status: 405,
       headers: corsHeaders
     });
   }
