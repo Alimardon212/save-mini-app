@@ -1,1 +1,8 @@
+name = "miniapp-api"
+main = "src/index.js"
+compatibility_date = "2026-01-07"
+
+kv_namespaces = [
+  { binding = "DATA", id = "KV_ID_BU_YERGA" }
+]
 
