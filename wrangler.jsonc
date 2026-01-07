@@ -8,7 +8,7 @@
   },
   "kv_namespaces": [
     {
-      "binding": "DATA",
+      "binding": "KV",
       "id": "60998e20ac60405392a3c3dd6caf79aa"
     }
   ]
