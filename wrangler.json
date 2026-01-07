@@ -1,5 +1,5 @@
 {
   "name": "miniapp-worker",
-  "private": true
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-07"
 }
-
