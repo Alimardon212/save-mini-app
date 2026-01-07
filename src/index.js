@@ -1,7 +1,7 @@
 export default {
   async fetch(request, env) {
     const headers = {
-      "Access-Control-Allow-Origin": "*",   // Barcha domenlardan ruxsat
+      "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type"
     };
@@ -16,9 +16,11 @@ export default {
 
     try {
       const data = await request.json();
-      const userId = data.user?.id || Date.now();
 
-      await env.DATA.put(`user_${userId}`, JSON.stringify(data));
+      // Kalit sifatida faqat userId
+      const userId = data.userId || Date.now();
+
+      await env.DATA.put(`${userId}`, JSON.stringify(data));
 
       return new Response("Saved", { status: 200, headers });
     } catch (err) {
