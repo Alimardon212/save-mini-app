@@ -4,27 +4,15 @@ export default {
       return new Response("Only POST allowed", { status: 405 });
     }
 
-    const body = await request.json();
+    try {
+      const data = await request.json(); // JSON ni olish
+      const userId = data.user?.id || Date.now();
 
-    const userId = body.user?.id;
-    const initData = body.initData;
+      await env.DATA.put(`user_${userId}`, JSON.stringify(data));
 
-    if (!userId || !initData) {
-      return new Response("Missing data", { status: 400 });
+      return new Response("Saved", { status: 200 });
+    } catch (err) {
+      return new Response("Error: " + err.message, { status: 500 });
     }
-
-    // KV ga saqlaymiz
-    await env.DATA.put(
-      `user_${userId}`,
-      JSON.stringify({
-        initData,
-        time: Date.now()
-      })
-    );
-
-    return new Response(
-      JSON.stringify({ ok: true }),
-      { headers: { "Content-Type": "application/json" } }
-    );
   }
 };
