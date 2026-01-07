@@ -1,15 +1,18 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "miniapp-api",
-  "main": "src/index.js",
-  "compatibility_date": "2026-01-07",
+  "name": "worker-name",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-04",
+
   "observability": {
     "enabled": true
   },
+
   "kv_namespaces": [
     {
-      "binding": "DATA",
+      "binding": "KV",
       "id": "60998e20ac60405392a3c3dd6caf79aa"
+      // preview_id ixtiyoriy, local dev bo‘lsa qo‘shasan
     }
   ]
 }
