@@ -1,15 +1,5 @@
 {
-  "name": "miniapp-api",
+  "name": "tg-miniapp-test",
   "version": "1.0.0",
-  "description": "Telegram MiniApp Test API",
-  "main": "src/index.js",
-  "scripts": {
-    "deploy": "wrangler deploy",
-    "dev": "wrangler dev",
-    "test": "curl 'https://miniapp-api.YOUR_SUBDOMAIN.workers.dev/health'"
-  },
-  "dependencies": {},
-  "devDependencies": {
-    "wrangler": "^4.57.0"
-  }
+  "private": true
 }
