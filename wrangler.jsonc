@@ -6,12 +6,11 @@
   "observability": {
     "enabled": true
   },
-
   "kv_namespaces": [
     {
-      "binding": "DATA", // Worker kodi `env.DATA` deb ishlaydi
+      "binding": "DATA",
       "id": "60998e20ac60405392a3c3dd6caf79aa",
-      "preview_id": "<ID_OF_PREVIEW_KV_NAMESPACE_FOR_LOCAL_DEVELOPMENT>" // optional, dev uchun
+      "preview_id": "<PREVIEW_ID_IF_NEEDED>"
     }
   ]
 }
